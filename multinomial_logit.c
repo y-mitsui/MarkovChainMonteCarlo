@@ -46,3 +46,4 @@ MultinomialLogit* multinomialLogitInit(int *sample,int nSample,int nParameter){
 
     return r;
 }
+

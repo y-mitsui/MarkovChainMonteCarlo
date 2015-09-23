@@ -2,18 +2,11 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
-#include <gsl/gsl_rng.h>
-#include <gsl/gsl_randist.h>
+#include <Python.h>
 #include "markov_chain_monte_carlo.h"
 
 const double PI2=2*M_PI;
 
-typedef struct{
-	int nSample;
-	int nParameter;
-	int *sample;
-	int *aggregate;
-}PDFArg;
 double xor128(){ 
 	static unsigned int x=123456789,y=362436069,z=521288629,w=88675123; 
 	unsigned int t; 
@@ -24,6 +17,7 @@ double xor128(){
 	w=(w^(w>>19))^(t^(t>>8));
 	return (double)w/(double)0xFFFFFFFF; 
 } 
+
 double gsl_rng_uniform_pos2(){
 	double r;
 	do{
@@ -31,6 +25,7 @@ double gsl_rng_uniform_pos2(){
 	}while(r==0.0);
 	return r;
 }
+
 void rnorm(double *result,int n,double mean,double sd){
 	double x, y, r2;
 	int i;
@@ -57,10 +52,8 @@ void metropolis(double (*log_fun)(void *,double *),void *arg,double *theta,int n
 	for (iter = 0; iter < mcmc; ++iter) {
 		for (i = 0; i < numTheta; ++i) {
 			rnorm(&rnd,1,0.0,1.0);
-			theta_can[i] = theta[i]+rnd*t;
-			if(mcmc-iter < 10)
-				printf("theta_can[%d]:%lf\n",i,theta_can[i]);
-    		}
+			theta_can[i] = theta[i]+rnd*t;	
+    	}
 		double userfun_can = log_fun(arg,theta_can);
 		if(iter==0) userfun_cur=userfun_can-1e-10;
 		const double ratio = exp(userfun_can - userfun_cur);
@@ -75,29 +68,46 @@ void metropolis(double (*log_fun)(void *,double *),void *arg,double *theta,int n
 	}
 }
 
-
-int main(void){
-    double trueProb[]={0.3,0.3,0.4};
-    double theta[]={0.5,0.5,0.5};
-    int nSample = 200000;
+static PyObject *metropolisInterface(PyObject *self, PyObject *args){
+    int nParameter,nSample;
+    PyObject *sampleObj,*row;
     
+    int i;
+    
+    if (! PyArg_ParseTuple( args, "Oi", &sampleObj, &nParameter)) return NULL;
+    
+    if((nSample = PyList_Size(sampleObj)) < 0) return NULL;
     int *sample=malloc(sizeof(int)*nSample);
-    int sampleCt=0;
-    int i,j;
-
-    for(i=0;i<sizeof(trueProb)/sizeof(trueProb[0]);i++){
-        for(j=0;j<trueProb[i]*nSample;j++){
-            sample[sampleCt++]=i;
-        }
+    
+    for (i=0; i<nSample; i++){
+        row = PyList_GetItem(sampleObj, i);
+        sample[i] = PyInt_AsLong(row);
     }
     
-    MultinomialLogit *ctx = multinomialLogitInit(sample,nSample,sizeof(trueProb)/sizeof(trueProb[0]));
+    double *theta=calloc(1,sizeof(double)*nParameter);
     
-    metropolis(multinomialLogit,ctx,theta,ctx->nParameter,6000000);
+    MultinomialLogit *ctx = multinomialLogitInit(sample,nSample,nParameter);
+    
+    metropolis(multinomialLogit,ctx,theta,ctx->nParameter,600000);
     double *estimateProbability=malloc(sizeof(double)*ctx->nParameter);
     softmax(theta,estimateProbability,ctx->nParameter);
-	for(i=0;i<ctx->nParameter;i++){
-	    printf("%f\n",estimateProbability[i]);
-	}
-	return 0;
+
+
+	PyListObject *list = (PyListObject *) PyList_New(ctx->nParameter);
+
+    for(i=0;i<ctx->nParameter;i++){
+         PyList_SET_ITEM(list,i,Py_BuildValue("f",estimateProbability[i]));
+    }
+    return Py_BuildValue("O", list);
 }
+
+static PyMethodDef mcmcmethods[] = {
+    {"metropolis", metropolisInterface, METH_VARARGS},
+    {NULL},
+};
+
+void initmcmc(void)
+{
+    Py_InitModule("mcmc", mcmcmethods);
+}
+
