@@ -43,7 +43,7 @@ cdef leapfrog(np.ndarray current_parameter_condinate,np.ndarray momentum,float s
     momentum = momentum + (step_accuracy/2.) * energy_function_delta(current_parameter_condinate, argument)
     return current_parameter_condinate, momentum
     
-def hamiltonianMonteCarlo(np.ndarray parameter, energy_function, energy_function_delta, argument=None, iter=10000,bear_in=9000, iter_leapfrog=20):
+def hamiltonianMonteCarlo(np.ndarray parameter, energy_function, energy_function_delta, argument=None, iter=2000,bear_in=1500, iter_leapfrog=20):
     cdef np.ndarray current_parameter_condinate
     cdef np.ndarray momentum
     cdef float hamilton
