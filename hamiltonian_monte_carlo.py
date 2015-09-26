@@ -7,6 +7,7 @@ import theano.tensor as T
 import time
 
 def softmax(param):
+    
     return numpy.exp(param)/numpy.exp(param).sum()
     
 def find_reasonable_epsilon(parameter, energy_function, energy_function_delta):
@@ -15,8 +16,6 @@ def find_reasonable_epsilon(parameter, energy_function, energy_function_delta):
     hamilton = energy_function(parameter) - numpy.sum(momentum**2.0) / 2.0
     current_parameter_condinate, momentum = leapfrog(parameter, momentum, epsilon, energy_function_delta)
     differenceHamilton = (energy_function(current_parameter_condinate) - numpy.sum(momentum ** 2.0) / 2.0)  - hamilton
-    #print differenceHamilton
-    #sys.exit(1)
     accept_probability = numpy.exp(differenceHamilton)
     
 
@@ -30,16 +29,18 @@ def find_reasonable_epsilon(parameter, energy_function, energy_function_delta):
         accept_probability = numpy.exp(differenceHamilton)
         
     print "find_reasonable_epsilon=", epsilon ** a
-    #sys.exit(1)
     return epsilon
 
 def leapfrog(current_parameter_condinate,momentum,step_accuracy,energy_function_delta):
     momentum = momentum + (step_accuracy/2.) * energy_function_delta(current_parameter_condinate)
     current_parameter_condinate = current_parameter_condinate + step_accuracy * momentum
+    current_parameter_condinate = numpy.array([max(min(x,20),-20) for x in current_parameter_condinate])
     momentum = momentum + (step_accuracy/2.) * energy_function_delta(current_parameter_condinate)
+
+    
     return current_parameter_condinate, momentum     
     
-def hamiltonianMonteCarlo(parameter, energy_function, energy_function_delta, iter=1000,bear_in=500, iter_leapfrog=20):
+def hamiltonianMonteCarlo(parameter, energy_function, energy_function_delta, iter=1000,bear_in=800, iter_leapfrog=20):
 
     target_accept = 0.8
     t0 = 10
@@ -58,8 +59,11 @@ def hamiltonianMonteCarlo(parameter, energy_function, energy_function_delta, ite
         current_parameter_condinate = current_parameter
         
         for _ in range(iter_leapfrog):
-            current_parameter_condinate, momentum = leapfrog(current_parameter_condinate,momentum,step_size,energy_function_delta)
-            
+            try:
+                current_parameter_condinate, momentum = leapfrog(current_parameter_condinate,momentum,step_size,energy_function_delta)
+            except Exception, e:
+                print e
+                continue
         
         differenceHamilton = ( (energy_function(current_parameter_condinate) - numpy.sum(momentum ** 2.0) / 2.0) ) - hamilton
 
@@ -86,29 +90,45 @@ def hamiltonianMonteCarlo(parameter, energy_function, energy_function_delta, ite
             print "likelyfood:%f"%(energy_function(current_parameter_condinate))
 
         if i > bear_in and i % 10 == 0:
-            r.append(softmax(current_parameter))
-
+            r.append(current_parameter)
+        
     return numpy.average(r,axis=0)
+    
 def bern(p):
-    return numpy.random.uniform() < p    
+    return numpy.random.uniform() < p
+        
 def callPosterior(parameter):
-    return posterior(parameter,0,5)
+    return posterior(parameter[:-1],1./parameter.shape[0],parameter[-1])
+    
 def callGPosterior(parameter):
-    return gPosterior(parameter,0,5)
+    diffence_values = gPosterior(parameter[:-1],1./parameter.shape[0],parameter[-1])
+    diffence_values = numpy.hstack(diffence_values)
+    if any(diffence_values != diffence_values):
+        print "------------------ Catch NaN ------------------------"
+        print "parameter:{}".format(parameter)
+        print "softmax(parameter):{}".format(softmax(parameter))
+        print "log(softmax(parameter)):{}".format(numpy.log(softmax(parameter)))
+        print diffence_values
+        sys.exit(1)
+        raise Exception
+    return diffence_values
     
 x = T.dvector('x')
 u = T.dscalar('u')
 sigma = T.dscalar('sigma')
-n = theano.shared(numpy.array([1000,10000,5000,2000]), name='n')
+sample = numpy.array([ 367,86,20,85,142,530,86,3,1,129,17,47,41,27,17,
+ 1999,834,574,215,302,84,96,15,2,141,32,7,12])
+n = theano.shared(sample, name='n')
 normalPdfSyntax = - (x.shape[0] / 2.) * T.log( 2. * math.pi * sigma ** 2) - (1./(2*sigma ** 2)) * T.sum((x-u) ** 2)
 posteriorSyntax = T.sum(n * T.log(T.nnet.softmax(x))) + normalPdfSyntax
 posterior = theano.function(inputs=[x,u,sigma], outputs=posteriorSyntax)
 
-gPosteriorSyntax = T.grad(cost=posteriorSyntax, wrt=x)
+gPosteriorSyntax = T.grad(cost=posteriorSyntax, wrt=[x,sigma])
 gPosterior = theano.function(inputs=[x,u,sigma], outputs=gPosteriorSyntax)
-
-estimated_parameter = hamiltonianMonteCarlo(numpy.random.normal(0., 1., 4),callPosterior,callGPosterior)
-
+t0 = time.time()
+estimated_parameter = hamiltonianMonteCarlo(numpy.random.normal(0., 1., sample.shape[0]+1),callPosterior,callGPosterior)
+t1 = time.time()
+print 'Looping times took', t1 - t0, 'seconds'
 print softmax(estimated_parameter)
 
 
